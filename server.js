@@ -5,7 +5,7 @@ const app = express();
 app.use(express.json());
 
 // Points directly to llama-server on your phone via Cloudflare Tunnel
-const PHONE_LLM_URL = "https://checkout-ntsc-ending-rhode.trycloudflare.com/v1/chat/completions";
+const PHONE_LLM_URL = "https://later-chain-axis-broker.trycloudflare.com/v1/chat/completions";
 
 app.post('/nexus', async (req, res) => {
     const { player, role, message } = req.body;
