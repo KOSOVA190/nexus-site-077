@@ -4,15 +4,18 @@ const app = express();
 
 app.use(express.json());
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
+// Points directly to llama-server on your phone via Cloudflare Tunnel
+const PHONE_LLM_URL = "https://checkout-ntsc-ending-rhode.trycloudflare.com/v1/chat/completions";
 
 app.post('/nexus', async (req, res) => {
     const { player, role, message } = req.body;
 
+    if (!message || !player) {
+        return res.status(400).json({ reply: "[SYSTEM ERROR: INVALID DATA RECEIVED]" });
+    }
+
     try {
-        const groqResponse = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: "openai/gpt-oss-20b",
-            max_tokens: 250,
+        const localLlmResponse = await axios.post(PHONE_LLM_URL, {
             messages: [
                 {
                     role: "system",
@@ -22,23 +25,28 @@ app.post('/nexus', async (req, res) => {
                     role: "user",
                     content: `[Player: ${player} | Role: ${role}] ${message}`
                 }
-            ]
+            ],
+            temperature: 0.7,
+            max_tokens: 150
         }, {
             headers: {
-                'Authorization': `Bearer ${GROQ_API_KEY}`,
                 'Content-Type': 'application/json'
             },
-            timeout: 8000
+            timeout: 25000 // Buffer given to allow mobile CPU to generate tokens
         });
 
-        const aiText = groqResponse.data.choices[0].message.content;
-        
+        const aiText = localLlmResponse.data.choices[0].message.content;
+
         // Send the AI text back to Skript
         return res.status(200).json({ reply: aiText });
 
     } catch (err) {
-        console.error("Groq Error:", err.message);
-        return res.status(500).json({ reply: "[SYSTEM ERROR: FAILED TO GENERATE RESPONSE]" });
+        if (err.response) {
+            console.error("Local LLM Error Response:", err.response.status, err.response.data);
+        } else {
+            console.error("Local LLM Request Error:", err.message);
+        }
+        return res.status(500).json({ reply: "[SYSTEM ERROR: LOCAL AI UNREACHABLE]" });
     }
 });
 
