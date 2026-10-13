@@ -9,9 +9,16 @@ let activePhoneUrl = "";
 
 // Endpoint for your phone to automatically register its URL on startup
 app.post('/register-url', (req, res) => {
-    const { url } = req.body;
+    let { url } = req.body;
     if (url) {
-        activePhoneUrl = `${url}/v1/chat/completions`;
+        // Strip trailing slashes and clean up duplicate /v1/chat/completions if already present
+        url = url.trim().replace(/\/+$/, '');
+        if (url.endsWith('/v1/chat/completions')) {
+            activePhoneUrl = url;
+        } else {
+            activePhoneUrl = `${url}/v1/chat/completions`;
+        }
+        
         console.log(`==> SUCCESS: Registered new phone URL -> ${activePhoneUrl}`);
         return res.status(200).json({ success: true, registeredUrl: activePhoneUrl });
     }
@@ -30,6 +37,8 @@ app.post('/nexus', async (req, res) => {
     }
 
     try {
+        console.log(`Forwarding request to Phone LLM: ${activePhoneUrl}`);
+
         const localLlmResponse = await axios.post(activePhoneUrl, {
             messages: [
                 {
@@ -38,7 +47,7 @@ app.post('/nexus', async (req, res) => {
                 },
                 {
                     role: "user",
-                    content: `[Player: ${player} | Role: ${role}] ${message}`
+                    content: `[Player: ${player} | Role: ${role || 'Classified'}] ${message}`
                 }
             ],
             temperature: 0.7,
@@ -47,10 +56,11 @@ app.post('/nexus', async (req, res) => {
             headers: {
                 'Content-Type': 'application/json'
             },
-            timeout: 25000
+            timeout: 35000 // Increased timeout to 35s to account for phone execution overhead
         });
 
-        const aiText = localLlmResponse.data.choices[0].message.content;
+        const aiText = localLlmResponse.data?.choices?.[0]?.message?.content || "[SYSTEM ERROR: EMPTY RESPONSE]";
+        console.log(`Received AI Response: ${aiText}`);
         return res.status(200).json({ reply: aiText });
 
     } catch (err) {
