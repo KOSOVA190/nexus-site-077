@@ -9,10 +9,6 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 app.post('/nexus', async (req, res) => {
     const { player, role, message } = req.body;
 
-    // 1. Instantly respond to Skript (takes ~10ms, TPS stays 20.0)
-    res.status(200).json({ status: "OK" });
-
-    // 2. Query Groq asynchronously in the cloud
     try {
         const groqResponse = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
             model: "llama-3.3-70b-versatile",
@@ -37,11 +33,12 @@ app.post('/nexus', async (req, res) => {
 
         const aiText = groqResponse.data.choices[0].message.content;
         
-        // Log output (you can see responses in your Render dashboard)
-        console.log(`[N.E.X.U.S to ${player}]: ${aiText}`);
+        // Send the AI text back to Skript
+        return res.status(200).json({ reply: aiText });
 
     } catch (err) {
         console.error("Groq Error:", err.message);
+        return res.status(500).json({ reply: "[SYSTEM ERROR: FAILED TO GENERATE RESPONSE]" });
     }
 });
 
