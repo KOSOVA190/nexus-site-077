@@ -4,8 +4,19 @@ const app = express();
 
 app.use(express.json());
 
-// Points directly to llama-server on your phone via Cloudflare Tunnel
-const PHONE_LLM_URL = "https://later-chain-axis-broker.trycloudflare.com/v1/chat/completions";
+// Stores the active tunnel URL dynamically in memory
+let activePhoneUrl = "";
+
+// Endpoint for your phone to automatically register its URL on startup
+app.post('/register-url', (req, res) => {
+    const { url } = req.body;
+    if (url) {
+        activePhoneUrl = `${url}/v1/chat/completions`;
+        console.log(`==> SUCCESS: Registered new phone URL -> ${activePhoneUrl}`);
+        return res.status(200).json({ success: true, registeredUrl: activePhoneUrl });
+    }
+    return res.status(400).json({ error: "Missing URL property" });
+});
 
 app.post('/nexus', async (req, res) => {
     const { player, role, message } = req.body;
@@ -14,8 +25,12 @@ app.post('/nexus', async (req, res) => {
         return res.status(400).json({ reply: "[SYSTEM ERROR: INVALID DATA RECEIVED]" });
     }
 
+    if (!activePhoneUrl) {
+        return res.status(503).json({ reply: "[SYSTEM ERROR: PHONE TUNNEL NOT REGISTERED YET]" });
+    }
+
     try {
-        const localLlmResponse = await axios.post(PHONE_LLM_URL, {
+        const localLlmResponse = await axios.post(activePhoneUrl, {
             messages: [
                 {
                     role: "system",
@@ -32,12 +47,10 @@ app.post('/nexus', async (req, res) => {
             headers: {
                 'Content-Type': 'application/json'
             },
-            timeout: 25000 // Buffer given to allow mobile CPU to generate tokens
+            timeout: 25000
         });
 
         const aiText = localLlmResponse.data.choices[0].message.content;
-
-        // Send the AI text back to Skript
         return res.status(200).json({ reply: aiText });
 
     } catch (err) {
