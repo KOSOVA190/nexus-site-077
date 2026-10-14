@@ -1,5 +1,4 @@
 const express = require('express');
-const fetch = require('node-fetch');
 
 const app = express();
 app.use(express.json());
@@ -21,7 +20,6 @@ app.post('/nexus', async (req, res) => {
         return res.status(400).json({ reply: 'SYSTEM ERROR: Null payload received.' });
     }
 
-    // Use environment variable if provided, otherwise default to permanent Ngrok static URL
     const targetUrl = process.env.PHONE_URL || DEFAULT_PHONE_URL;
 
     // OpenAI-compatible format for llama-server
@@ -35,17 +33,13 @@ app.post('/nexus', async (req, res) => {
     };
 
     try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
-
+        // Uses Node's built-in fetch with a 30-second timeout signal
         const response = await fetch(targetUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
-            signal: controller.signal
+            signal: AbortSignal.timeout(30000)
         });
-
-        clearTimeout(timeout);
 
         if (response.ok) {
             const data = await response.json();
@@ -55,7 +49,7 @@ app.post('/nexus', async (req, res) => {
             return res.status(502).json({ reply: `SYSTEM ERROR: Mainframe returned HTTP ${response.status}` });
         }
     } catch (err) {
-        if (err.name === 'AbortError') {
+        if (err.name === 'TimeoutError' || err.name === 'AbortError') {
             return res.status(504).json({ reply: 'SYSTEM ERROR: Connection to phone mainframe timed out.' });
         }
         return res.status(500).json({ reply: `SYSTEM ERROR: Failed to reach mainframe (${err.message})` });
