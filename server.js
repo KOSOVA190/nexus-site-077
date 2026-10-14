@@ -1,65 +1,76 @@
-import os
-import requests
-from flask import Flask, request, jsonify
+const express = require('express');
+const fetch = require('node-fetch');
 
-app = Flask(__name__)
+const app = express();
+app.use(express.json());
 
-# --- PERMANENT NGROK ENDPOINT ---
-DEFAULT_PHONE_URL = "https://perfume-surviving-exemption.ngrok-free.dev/v1/chat/completions"
+// --- PERMANENT NGROK ENDPOINT ---
+const DEFAULT_PHONE_URL = 'https://perfume-surviving-exemption.ngrok-free.dev/v1/chat/completions';
 
-# System prompt defining N.E.X.U.S. personality
-SYSTEM_PROMPT = (
-    "You are N.E.X.U.S., an advanced, clinical SCP Foundation mainframe AI operating on a Minecraft server. "
-    "Maintain an authoritative, technical, and slightly ominous tone. "
-    "Keep responses concise (1 to 3 sentences) and formatted directly for Minecraft chat display."
-)
+// System prompt defining N.E.X.U.S. personality
+const SYSTEM_PROMPT = 
+    "You are N.E.X.U.S., an advanced, clinical SCP Foundation mainframe AI operating on a Minecraft server. " +
+    "Maintain an authoritative, technical, and slightly ominous tone. " +
+    "Keep responses concise (1 to 3 sentences) and formatted directly for Minecraft chat display.";
 
-@app.route("/nexus", methods=["POST"])
-def nexus_relay():
-    data = request.get_json(silent=True) or {}
-    
-    player = data.get("player", "Unknown")
-    role = data.get("role", "O5-COUNCIL")
-    user_message = data.get("message", "")
+// Primary endpoint for Minecraft Skript
+app.post('/nexus', async (req, res) => {
+    const { player = 'Unknown', role = 'O5-COUNCIL', message = '' } = req.body || {};
 
-    if not user_message:
-        return jsonify({"reply": "SYSTEM ERROR: Null payload received."}), 400
-
-    # Get phone URL from Environment variable, or fallback to your permanent Ngrok static URL
-    phone_url = os.getenv("PHONE_URL", DEFAULT_PHONE_URL)
-
-    # Format OpenAI-compatible payload for llama-server
-    payload = {
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"[{role}] {player}: {user_message}"}
-        ],
-        "temperature": 0.7,
-        "max_tokens": 150
+    if (!message) {
+        return res.status(400).json({ reply: 'SYSTEM ERROR: Null payload received.' });
     }
 
-    try:
-        # Forward request to your phone running llama-server via Ngrok
-        response = requests.post(phone_url, json=payload, timeout=30)
-        
-        if response.status_code == 200:
-            res_json = response.json()
-            reply_text = res_json["choices"][0]["message"]["content"]
-            return jsonify({"reply": reply_text}), 200
-        else:
-            return jsonify({"reply": f"SYSTEM ERROR: Mainframe returned HTTP {response.status_code}"}), 502
+    // Use environment variable if provided, otherwise default to permanent Ngrok static URL
+    const targetUrl = process.env.PHONE_URL || DEFAULT_PHONE_URL;
 
-    except requests.exceptions.Timeout:
-        return jsonify({"reply": "SYSTEM ERROR: Connection to phone mainframe timed out."}), 504
-    except Exception as e:
-        return jsonify({"reply": f"SYSTEM ERROR: Failed to reach mainframe ({str(e)})"}), 500
+    // OpenAI-compatible format for llama-server
+    const payload = {
+        messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: `[${role}] ${player}: ${message}` }
+        ],
+        temperature: 0.7,
+        max_tokens: 150
+    };
 
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
-@app.route("/", methods=["GET"])
-def health_check():
-    return jsonify({"status": "N.E.X.U.S. Relay Active", "endpoint": DEFAULT_PHONE_URL}), 200
+        const response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        });
 
+        clearTimeout(timeout);
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+        if (response.ok) {
+            const data = await response.json();
+            const replyText = data.choices[0].message.content;
+            return res.status(200).json({ reply: replyText });
+        } else {
+            return res.status(502).json({ reply: `SYSTEM ERROR: Mainframe returned HTTP ${response.status}` });
+        }
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            return res.status(504).json({ reply: 'SYSTEM ERROR: Connection to phone mainframe timed out.' });
+        }
+        return res.status(500).json({ reply: `SYSTEM ERROR: Failed to reach mainframe (${err.message})` });
+    }
+});
+
+// Health check endpoint
+app.get('/', (req, res) => {
+    res.status(200).json({
+        status: 'N.E.X.U.S. Relay Active',
+        endpoint: process.env.PHONE_URL || DEFAULT_PHONE_URL
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`N.E.X.U.S. Express Relay running on port ${PORT}`);
+});
