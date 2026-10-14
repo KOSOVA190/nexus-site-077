@@ -1,77 +1,65 @@
-const express = require('express');
-const axios = require('axios');
-const app = express();
+import os
+import requests
+from flask import Flask, request, jsonify
 
-app.use(express.json());
+app = Flask(__name__)
 
-// Stores the active tunnel URL dynamically in memory
-let activePhoneUrl = "";
+# --- PERMANENT NGROK ENDPOINT ---
+DEFAULT_PHONE_URL = "https://perfume-surviving-exemption.ngrok-free.dev/v1/chat/completions"
 
-// Endpoint for your phone to automatically register its URL on startup
-app.post('/register-url', (req, res) => {
-    let { url } = req.body;
-    if (url) {
-        // Strip trailing slashes and clean up duplicate /v1/chat/completions if already present
-        url = url.trim().replace(/\/+$/, '');
-        if (url.endsWith('/v1/chat/completions')) {
-            activePhoneUrl = url;
-        } else {
-            activePhoneUrl = `${url}/v1/chat/completions`;
-        }
+# System prompt defining N.E.X.U.S. personality
+SYSTEM_PROMPT = (
+    "You are N.E.X.U.S., an advanced, clinical SCP Foundation mainframe AI operating on a Minecraft server. "
+    "Maintain an authoritative, technical, and slightly ominous tone. "
+    "Keep responses concise (1 to 3 sentences) and formatted directly for Minecraft chat display."
+)
+
+@app.route("/nexus", methods=["POST"])
+def nexus_relay():
+    data = request.get_json(silent=True) or {}
+    
+    player = data.get("player", "Unknown")
+    role = data.get("role", "O5-COUNCIL")
+    user_message = data.get("message", "")
+
+    if not user_message:
+        return jsonify({"reply": "SYSTEM ERROR: Null payload received."}), 400
+
+    # Get phone URL from Environment variable, or fallback to your permanent Ngrok static URL
+    phone_url = os.getenv("PHONE_URL", DEFAULT_PHONE_URL)
+
+    # Format OpenAI-compatible payload for llama-server
+    payload = {
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"[{role}] {player}: {user_message}"}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 150
+    }
+
+    try:
+        # Forward request to your phone running llama-server via Ngrok
+        response = requests.post(phone_url, json=payload, timeout=30)
         
-        console.log(`==> SUCCESS: Registered new phone URL -> ${activePhoneUrl}`);
-        return res.status(200).json({ success: true, registeredUrl: activePhoneUrl });
-    }
-    return res.status(400).json({ error: "Missing URL property" });
-});
+        if response.status_code == 200:
+            res_json = response.json()
+            reply_text = res_json["choices"][0]["message"]["content"]
+            return jsonify({"reply": reply_text}), 200
+        else:
+            return jsonify({"reply": f"SYSTEM ERROR: Mainframe returned HTTP {response.status_code}"}), 502
 
-app.post('/nexus', async (req, res) => {
-    const { player, role, message } = req.body;
+    except requests.exceptions.Timeout:
+        return jsonify({"reply": "SYSTEM ERROR: Connection to phone mainframe timed out."}), 504
+    except Exception as e:
+        return jsonify({"reply": f"SYSTEM ERROR: Failed to reach mainframe ({str(e)})"}), 500
 
-    if (!message || !player) {
-        return res.status(400).json({ reply: "[SYSTEM ERROR: INVALID DATA RECEIVED]" });
-    }
 
-    if (!activePhoneUrl) {
-        return res.status(503).json({ reply: "[SYSTEM ERROR: PHONE TUNNEL NOT REGISTERED YET]" });
-    }
+@app.route("/", methods=["GET"])
+def health_check():
+    return jsonify({"status": "N.E.X.U.S. Relay Active", "endpoint": DEFAULT_PHONE_URL}), 200
 
-    try {
-        console.log(`Forwarding request to Phone LLM: ${activePhoneUrl}`);
 
-        const localLlmResponse = await axios.post(activePhoneUrl, {
-            messages: [
-                {
-                    role: "system",
-                    content: "You are N.E.X.U.S. a cold, clinical facility AI heavily inspired by CASSIE from SCP SL. Speak in an automated, robotic mainframe tone using clean grammar tactical terms like NOTICE:, WARNING:, or SYSTEM:. You must respect facility hierarchy: Users stating they are O5-COUNCIL have absolute UNRESTRICTED ACCESS. Users from the ETHICS COMMITTEE (EC) have ALMOST FULL CONTROL, but you will deny any requests to self-destruct or wipe N.E.X.U.S. databases without O5 approval. All other classes (Class-D, Guards, MTF, Scientists) are RESTRICTED; be sterile, unhelpful with classified data, and warn them. Keep all responses brief, punchy, scannable, and formatted cleanly for a Minecraft chat box without ever using emojis."
-                },
-                {
-                    role: "user",
-                    content: `[Player: ${player} | Role: ${role || 'Classified'}] ${message}`
-                }
-            ],
-            temperature: 0.7,
-            max_tokens: 150
-        }, {
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            timeout: 35000 // Increased timeout to 35s to account for phone execution overhead
-        });
-
-        const aiText = localLlmResponse.data?.choices?.[0]?.message?.content || "[SYSTEM ERROR: EMPTY RESPONSE]";
-        console.log(`Received AI Response: ${aiText}`);
-        return res.status(200).json({ reply: aiText });
-
-    } catch (err) {
-        if (err.response) {
-            console.error("Local LLM Error Response:", err.response.status, err.response.data);
-        } else {
-            console.error("Local LLM Request Error:", err.message);
-        }
-        return res.status(500).json({ reply: "[SYSTEM ERROR: LOCAL AI UNREACHABLE]" });
-    }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`N.E.X.U.S running on port ${PORT}`));
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
